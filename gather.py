@@ -46,9 +46,14 @@ def extract_from_fname(fname):
             }
 
 
-def avg(data):
-    mean=np.mean(data,axis=0)
-    error=np.std(data,axis=0)/np.sqrt(len(data)-1)
+def avg(data, reblock=16, correlated=True):
+    if (correlated == False):
+        mean=np.mean(data,axis=0)
+        error=np.std(data,axis=0)/np.sqrt(len(data)-1)
+    else:
+        vals = pyqmc.reblock.reblock(data, reblock)
+        mean=np.mean(data,axis=0)
+        error=scipy.stats.sem(vals,axis=0)
     return mean,error
 
 def calculate_entropy(dm):
@@ -71,7 +76,7 @@ def read_vmc(fname):
         #print(list(f.keys()))
         warmup=2
         energy=f['energytotal'][warmup:,...]
-        e_tot,error=avg(energy)
+        e_tot,error=avg(energy, correlated=True)
     
         rdm1_up,rdm1_up_err=normalize_rdm(f['rdm1_upvalue'],f['rdm1_upnorm'],warmup)
         rdm1_down,rdm1_down_err=normalize_rdm(f['rdm1_downvalue'],f['rdm1_downnorm'],warmup)
