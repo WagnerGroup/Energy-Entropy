@@ -45,10 +45,12 @@ def extract_from_fname(fname):
             "nconfig":nconfig
             }
 
-
-def avg(data):
-    mean=np.mean(data,axis=0)
-    error=np.std(data,axis=0)/np.sqrt(len(data)-1)
+def avg(data, reblock=16, weights=None):
+    if (weights is None):
+        weights = np.ones(data.shape)
+    vals = pyqmc.reblock.reblock(data, reblock, weights=weights)
+    mean=np.mean(vals,axis=0)
+    error=scipy.stats.sem(vals,axis=0)
     return mean,error
 
 def calculate_entropy(dm):
@@ -65,22 +67,19 @@ def normalize_rdm(rdm1_value,rdm1_norm,warmup):
     rdm1=pyqmc.obdm.normalize_obdm(rdm1,rdm1_norm)
     rdm1_err=pyqmc.obdm.normalize_obdm(rdm1_err,rdm1_norm) 
     return rdm1,rdm1_err
-    
-def read_vmc(fname):
+
+def read_mc_output(fname, warmup=5, reblock=16):
     with h5py.File(fname,'r') as f:
-        #print(list(f.keys()))
-        warmup=2
-        energy=f['energytotal'][warmup:,...]
-        e_tot,error=avg(energy)
-    
+        if 'weight' in f.keys():
+            wt = f['weight'][warmup:]
+        else:
+            wt = None
+        e_tot,error = avg(f['energytotal'][warmup:,...], reblock, weights=wt)
         rdm1_up,rdm1_up_err=normalize_rdm(f['rdm1_upvalue'],f['rdm1_upnorm'],warmup)
         rdm1_down,rdm1_down_err=normalize_rdm(f['rdm1_downvalue'],f['rdm1_downnorm'],warmup)
         rdm1=np.array([rdm1_up,rdm1_down])
         entropy=calculate_entropy(rdm1)
-        return e_tot,error,entropy
-
-def read_dmc(fname):
-    return read_vmc(fname)
+    return e_tot,error,entropy
 
 def read(fname):
     with h5py.File(fname,'r') as f:
@@ -88,10 +87,8 @@ def read(fname):
         method=extract_from_fname(fname)["method"]
         if 'cc' in method:
             e_tot=f['ccsd']['energy'][()]
-        elif 'vmc' in method:
-            e_tot,error,entropy=read_vmc(fname)
-        elif 'dmc' in method:
-            e_tot,error,entropy=read_dmc(fname)
+        elif ('vmc' in method) or ('dmc' in method):
+            e_tot,error,entropy=read_mc_output(fname)
         elif 'hf' in method: 
             e_tot = f['scf']['e_tot'][()]
         elif 'fci' in method:
