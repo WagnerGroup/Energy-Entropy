@@ -128,8 +128,9 @@ rule OPTIMIZE_HCI:
                                   nconfig = int(wildcards.nconfig), slater_kws=slater_kws, client=client, npartitions=qmc_threads)
         if n > 0:
             anchor_wfs = [input[f'anchor_wf{i}'] for i in range(n)]
-            functions.orthogonal_opt(input.mf, input.hci, anchor_wfs, output[0], 
-                                     slater_kws=slater_kws, nconfig=int(wildcards.nconfig) )
+            with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
+                functions.orthogonal_opt(input.mf, input.hci, anchor_wfs, output[0], start_from=start_from,
+                                     slater_kws=slater_kws, nconfig=int(wildcards.nconfig), client=client, npartitions=qmc_threads)
 
 rule VMC:
     input: mf = "{dir}/mf.chk", opt = "{dir}/opt_{variables}.chk"
