@@ -48,23 +48,23 @@ def generate_dmc_hf(dir,nconfig,orbitals,tstep=0.02):
 
 
 
-molecule = ['h2','h4','h6']#,'h8','h10'
+molecule = ['h2','h4','h6'] #,'h8','h10'
 bond_lengths = [1.4,2.0,3.0] #1.0,,4.0
 basis = ['vtz'] #'vdz',,'vqz',,'v5z'
 
 folder = itertools.product(molecule,bond_lengths)
-for molecule,length in folder:
-    make_paths([molecule,length])
-prod = itertools.product(molecule,basis,bond_lengths)
+for m,length in folder:
+    make_paths([m,length])
 
+prod = itertools.product(molecule,basis,bond_lengths)
 
 ### start from HCI calculations
 
-hf_target, cc_target, hci_target, fci_target = [],[],[],[],[]
+hf_target, cc_target, hci_target, fci_target = [],[],[],[]
 tolerance = [0.1,0.08,0.05,0.02,0.01,0.008] #
 
 for molecule,basis,length in prod:
-
+    print(molecule)
     dir_hf = f"{molecule}_{length}/hf/{basis}"
     hf_target.append(f"{dir_hf}/mf.chk")
     cc_target.append(f"{dir_hf}/cc.chk")
@@ -81,6 +81,7 @@ for molecule,basis,length in prod:
 targets =  hf_target + hci_target + cc_target + fci_target
 files = " ".join(targets)
 print("Total number of tasks:",len(targets))
+print(files)
 
 f = open(f"targets.txt","w")
 f.write(files)
