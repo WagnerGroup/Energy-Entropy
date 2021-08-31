@@ -6,7 +6,7 @@ import numpy as np
 import pyscf
 import pyqmc.recipes
 import h5py
-import pyqmc.multislater
+import pyqmc.api as pyq
 import pyqmc.tbdm
 import pyscf.hci
 import pyscf.cc
@@ -62,7 +62,7 @@ def mean_field(xyz,chkfile, functional, settings=None, **kwargs):
 
 
 def run_hci(hf_chkfile, chkfile, select_cutoff=0.1, nroots=4):
-    mol, mf = pyqmc.recover_pyscf(hf_chkfile, cancel_outputs=False)
+    mol, mf = pyq.recover_pyscf(hf_chkfile, cancel_outputs=False)
     cisolver = pyscf.hci.SCI(mol)
     cisolver.select_cutoff=select_cutoff
     cisolver.nroots=nroots
@@ -84,7 +84,7 @@ def run_hci(hf_chkfile, chkfile, select_cutoff=0.1, nroots=4):
         })
 
 def fci(hf_chkfile, fci_chkfile, nroots=4):
-    mol, mf = pyqmc.recover_pyscf(hf_chkfile, cancel_outputs=False)
+    mol, mf = pyq.recover_pyscf(hf_chkfile, cancel_outputs=False)
     cisolver = pyscf.fci.FCI(mf)
     cisolver.nroots = nroots
     cisolver.kernel()
@@ -93,7 +93,7 @@ def fci(hf_chkfile, fci_chkfile, nroots=4):
         f["e_tot"] = cisolver.e_tot
 
 def recover_hci(hf_chkfile, ci_chkfile):
-    mol, mf = pyqmc.recover_pyscf(hf_chkfile)
+    mol, mf = pyq.recover_pyscf(hf_chkfile)
     cisolver = pyscf.hci.SCI(mol)
     cisolver.__dict__.update(pyscf.lib.chkfile.load(ci_chkfile,'ci'))
     return mol, mf, cisolver
@@ -102,20 +102,20 @@ def generate_wf_gs(hf_chkfile, ci_chkfile, slater_kws=None):
     if ci_chkfile is not None:
         mol, mf, cisolver = recover_hci(hf_chkfile, ci_chkfile)
         cisolver.ci=cisolver.ci[0]
-        wf, to_opt = pyqmc.generate_wf(mol, mf, mc=cisolver, slater_kws=slater_kws)
+        wf, to_opt = pyq.generate_wf(mol, mf, mc=cisolver, slater_kws=slater_kws)
     else: 
-        mol, mf = pyqmc.recover_pyscf(hf_chkfile)
-        wf, to_opt = pyqmc.generate_wf(mol, mf, slater_kws=slater_kws)
+        mol, mf = pyq.recover_pyscf(hf_chkfile)
+        wf, to_opt = pyq.generate_wf(mol, mf, slater_kws=slater_kws)
     return mol, mf, wf, to_opt
 
 def optimize_gs(hf_chkfile, ci_chkfile, opt_chkfile, start_from=None, slater_kws=None, nconfig=1000, **kwargs):
     mol, mf, wf, to_opt = generate_wf_gs(hf_chkfile, ci_chkfile, slater_kws)
     if start_from is not None:
         print("reading from", start_from)
-        pyqmc.read_wf(wf, start_from)
-    configs = pyqmc.initial_guess(mol, nconfig)
-    acc = pyqmc.gradient_generator(mol, wf, to_opt)
-    pyqmc.line_minimization(wf, configs, acc, verbose=True, hdf_file = opt_chkfile, **kwargs)
+        pyq.read_wf(wf, start_from)
+    configs = pyq.initial_guess(mol, nconfig)
+    acc = pyq.gradient_generator(mol, wf, to_opt)
+    pyq.line_minimization(wf, configs, acc, verbose=True, hdf_file = opt_chkfile, **kwargs)
 
 def transform_ci(ci, coeffs):
     return np.sum([ci[i] * coeffs[i] for i in range(len(coeffs))], axis=0)
@@ -128,17 +128,17 @@ def generate_wfs(hf_chkfile, cas_chkfile, weights, anchor_wfs, slater_kws=None, 
 
     wf_anchor = []
     for anchor in anchor_wfs:
-        wf, to_opt = pyqmc.generate_wf(
+        wf, to_opt = pyq.generate_wf(
             mol,
             mf,
             mc=cas,
             slater_kws=slater_kws,
             jastrow_kws=jastrow_kws
         )
-        pyqmc.read_wf(wf, anchor)
+        pyq.read_wf(wf, anchor)
         wf_anchor.append(wf)
 
-    wf_es, to_opt = pyqmc.generate_wf(
+    wf_es, to_opt = pyq.generate_wf(
         mol,
         mf,
         mc=cas,
@@ -169,10 +169,10 @@ def orthogonal_opt(
         if k in to_opt.keys():
             to_opt[k] = np.ones_like(to_opt[k], dtype="bool")
     if start_from is not None:
-        pyqmc.read_wf(wf_es, start_from)
-    configs = pyqmc.initial_guess(mol, nconfig)
-    acc = pyqmc.gradient_generator(mol, wf_es, to_opt)
-    pyqmc.optimize_orthogonal(
+        pyq.read_wf(wf_es, start_from)
+    configs = pyq.initial_guess(mol, nconfig)
+    acc = pyq.gradient_generator(mol, wf_es, to_opt)
+    pyq.optimize_orthogonal(
         wf_anchor+[wf_es],
         configs,
         acc,
@@ -188,7 +188,7 @@ def generate_accumulators(mol, mf):
     else:
         mo_coeff=mf.mo_coeff
     return {
-        'energy':pyqmc.EnergyAccumulator(mol),
+        'energy':pyq.EnergyAccumulator(mol),
         'rdm1_up':pyqmc.obdm.OBDMAccumulator(mol, orb_coeff=mo_coeff[0], spin=0),
         'rdm1_down': pyqmc.obdm.OBDMAccumulator(mol, orb_coeff=mo_coeff[1], spin=1),
         #'rdm2_updown': pyqmc.tbdm.TBDMAccumulator(mol, orb_coeff=mo_coeff2rdm, spin=(0,1)),
@@ -197,21 +197,21 @@ def generate_accumulators(mol, mf):
 
 def evaluate_vmc(hf_chkfile, ci_chkfile, opt_chkfile, vmc_chkfile, slater_kws=None, nconfig=1000, **kwargs):
     mol, mf, wf, to_opt = generate_wf_gs(hf_chkfile, ci_chkfile, slater_kws)
-    configs = pyqmc.initial_guess(mol, nconfig)
-    pyqmc.read_wf(wf, opt_chkfile)
+    configs = pyq.initial_guess(mol, nconfig)
+    pyq.read_wf(wf, opt_chkfile)
     acc=generate_accumulators(mol, mf)
-    pyqmc.vmc(wf, configs, accumulators=acc, verbose=True, hdf_file = vmc_chkfile, **kwargs)
+    pyq.vmc(wf, configs, accumulators=acc, verbose=True, hdf_file = vmc_chkfile, **kwargs)
 
 
 def evaluate_dmc(hf_chkfile, ci_chkfile, opt_chkfile, dmc_chkfile, slater_kws=None, nconfig=1000, **kwargs):
     mol, mf, wf, to_opt = generate_wf_gs(hf_chkfile, ci_chkfile, slater_kws)
-    configs = pyqmc.initial_guess(mol, nconfig)
-    pyqmc.read_wf(wf, opt_chkfile)
+    configs = pyq.initial_guess(mol, nconfig)
+    pyq.read_wf(wf, opt_chkfile)
     acc=generate_accumulators(mol, mf)
-    pyqmc.rundmc(wf, configs, accumulators=acc, verbose=True, hdf_file = dmc_chkfile, **kwargs)
+    pyq.rundmc(wf, configs, accumulators=acc, verbose=True, hdf_file = dmc_chkfile, **kwargs)
 
 def run_ccsd(hf_chkfile, chkfile):
-    mol, mf = pyqmc.recover_pyscf(hf_chkfile,cancel_outputs=False)
+    mol, mf = pyq.recover_pyscf(hf_chkfile,cancel_outputs=False)
     mycc = pyscf.cc.CCSD(mf).run(verbose=0)
     dm1 = mycc.make_rdm1()
 
