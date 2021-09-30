@@ -8,10 +8,10 @@ import glob
 # import gather_entropy
 import extrapolations
 
-def separate_variables_in_fname(spl):
+def separate_variables_in_mcfname(spl):
     method = spl[0]
     startingwf = spl[1]
-    determinant_cutoff, tol = 0, "/"
+    determinant_cutoff, tol = "/", "/"
 
     i = 1
     if "hci" in startingwf:
@@ -20,13 +20,14 @@ def separate_variables_in_fname(spl):
 
     orbitals = spl[i+1]
     statenumber = spl[i+2]
-    nconfig = spl[i+3]
+    nconfig = int(spl[i+3])
 
     if "dmc" in method:
         method += spl[i+4]
 
     if "hci" in startingwf:
         method += "_hci"
+        tol = startingwf[3:]
     elif "mf" in startingwf:
         method += "_sj"
     else:
@@ -41,16 +42,17 @@ def extract_from_fname(fname):
 
     if '_' in spl[3]:
         spl_2 = spl[3].split('_')
-        method,startingwf,orbitals,statenumber,nconfig, determinant_cutoff, tol = separate_variables_in_fname(spl_2)
+        method,startingwf,orbitals,statenumber,nconfig, determinant_cutoff, tol = separate_variables_in_mcfname(spl_2)
         if (startingwf == "mf"):
             startingwf = spl[1]
     else: 
         startingwf = spl[1]
-        orbitals,nconfig, tol, determinant_cutoff = "/", "/", "/", "/"
+        orbitals, nconfig, tol, determinant_cutoff = "/", "/", "/", "/"
         statenumber = 0
         method = spl[3]
         if "hci" in method:
             tol = method[3:]
+            method = "hci"
         if method == "mf":
             method = spl[1]
 
@@ -69,6 +71,7 @@ def extract_from_fname(fname):
 
 def track_opt_determinants(fname):
     fname = fname.replace("vmc","opt")
+    # print(fname)
     with h5py.File(fname,'r') as f:
         # print(list(f.keys()))
         if 'wf1det_coeff' in list(f['wf'].keys()):
@@ -76,8 +79,6 @@ def track_opt_determinants(fname):
         else:
             print("Single determinants:", fname)
             determinants = 1
-        # it = np.array(f['x']).shape[0]
-        # x = np.array(f['x']).shape[1]
     return determinants #, it
 
 
@@ -88,8 +89,8 @@ def read_vmc(fname, warmup=2):
     
     rdm1, rdm1_err = extrapolations.read_rdm(fname,warmup)
     _, entropy = extrapolations.compute_entropy_aggressive(rdm1, epsilon=np.mean(rdm1_err))
-
-    return e_tot, error, entropy #errorbar?
+    trace_object = extrapolations.compute_trace(rdm1)
+    return e_tot, error, entropy, trace_object #errorbar?
 
 def read_dmc(fname, warmup=2):
     with h5py.File(fname,'r') as f:
@@ -98,22 +99,25 @@ def read_dmc(fname, warmup=2):
     
     rdm1, rdm1_err = extrapolations.extrapolate_rdm(fname,warmup)
     _, entropy = extrapolations.compute_entropy_aggressive(rdm1, epsilon=np.mean(rdm1_err))
+    trace_object = extrapolations.compute_trace(rdm1)
+    return e_tot, error, entropy, trace_object
 
-    return e_tot, error, entropy
+def store_hf_energy(fname):
+    spl = fname.split('/')
+    folder = fname.replace(spl[-1],"mf.chk")
+    with h5py.File(folder,'r') as f:
+        e_hf = f['scf']['e_tot'][()]
+    return e_hf
 
 def read(fname, method):
     e_tot, error, entropy = 0.0, 0.0, 0.0
     determinants = "/"
-    # entropy_err, trace = 0.0, 0.0
-
+    e_corr, trace = 0.0, 0.0
     if 'vmc' in method:
-        e_tot, error, entropy = read_vmc(fname)
+        e_tot, error, entropy, trace = read_vmc(fname)
         determinants = track_opt_determinants(fname)
     elif 'dmc' in method:
-        e_tot, error, entropy = read_dmc(fname)
-        determinants = track_opt_determinants(fname)
-    elif 'opt' in method:
-        pass
+        e_tot, error, entropy, trace = read_dmc(fname)
     else: 
         with h5py.File(fname,'r') as f:
             if 'hf' in method: 
@@ -121,18 +125,22 @@ def read(fname, method):
                 determinants = 1
             elif 'fci' in method:
                 e_tot = np.array(f['e_tot'][()])[0] #state_0,1,2,3, 
+            
             elif 'cc' in method:
                 e_tot = f['ccsd']['energy'][()]
                 rdm1 = np.array(f['ccsd']['rdm'])
                 _, entropy = extrapolations.compute_entropy_aggressive(rdm1)
+                trace = extrapolations.compute_trace(rdm1)
             elif 'hci' in method:
                 e_tot = np.array(f['ci']['energy'])[0] 
                 determinants = f['ci']['_strs'][()].shape[0]
                 rdm1 = np.array(f['ci']['rdm'])
                 _, entropy = extrapolations.compute_entropy_aggressive(rdm1)
+                trace = extrapolations.compute_trace(rdm1)
 
-        # trace = gather_entropy.calculate_trace(rdm1)
-    return determinants, e_tot, error, entropy #, entropy_without_noise, mixed_entropy, entropy_err , trace
+    e_hf = store_hf_energy(fname)
+    e_corr = e_hf - e_tot
+    return determinants, e_tot, error, entropy, e_corr, trace
 
 def create(fname):
     record = extract_from_fname(fname)
@@ -140,32 +148,27 @@ def create(fname):
     if record["molecule"][0] == 'h':
         N = int(record["molecule"][1:])
     method = record["method"]
-    determinants, e_tot, error, entropy = read(fname, method)
+    determinants, e_tot, error, entropy, e_corr, trace = read(fname, method)
     record.update({
            "ndet": determinants,
            "natom": N,
-           "energy_per_atom": e_tot/N,
-           "error_per_atom": error/N,
-           "entropy_per_atom": entropy/N,
+           "energy/N": e_tot/N,
+           "error/N": error/N,
+           "entropy/N": entropy/N,
+           "corrE/N": e_corr/N, 
+           "rdm1_trace/N": trace/N
     })
-    """
-    "opt_iter":iterations,
-    "energy": e_tot,
-    "error": error,
-    "entropy": entropy,
-    "mixed_entropy": mixed_entropy,
-    "entropy_per_atom_without_noise": entropy_without_noise/N,
-    "entropy_per_atom_errorbar": entropy_err/N,
-    "rdm1_trace_per_atom": trace/N
-    """
     return record
 
 
 if __name__=="__main__":
+
     fname = []
     for name in glob.glob('**/*.chk',recursive=True):
+        if "opt" in name:
+            continue
         fname.append(name)
 
     df = pd.DataFrame([create(name) for name in fname])
-    df = df.sort_values(by=['natom','bond_length','hci_tol'])
+    df = df.sort_values(by=['natom','bond_length','hci_tol','nconfig'])
     df.to_csv("data.csv", index=False)

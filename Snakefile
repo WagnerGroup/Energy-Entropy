@@ -1,7 +1,7 @@
 import functions
 import concurrent
 import numpy as np
-qmc_threads=2
+qmc_threads=20
 partition="wagner"
 import json
 
@@ -33,7 +33,7 @@ rule HCI:
     input: "{dir}/mf.chk"
     output: "{dir}/hci{tol}.chk"
     resources:
-        walltime="4:00:00", partition=partition
+        walltime="8:00:00", partition=partition
     run:
         functions.run_hci(input[0],output[0], float(wildcards.tol), nroots=nroots)
 
@@ -49,6 +49,9 @@ rule CC:
 rule FCI:
     input: "{dir}/mf.chk"
     output: "{dir}/fci.chk"
+    threads: qmc_threads
+    resources:
+        walltime="72:00:00", partition=partition
     run:
         functions.fci(input[0], output[0], nroots=nroots)
 
@@ -89,7 +92,7 @@ rule OPTIMIZE_MF:
         elif wildcards.orbitals=='fixed':
             slater_kws={'optimize_orbitals':False}
         elif wildcards.orbitals=='large':
-            slater_kws={'optimize_orbitals':True, 'optimize_zeros':False}
+            slater_kws={'optimize_orbitals':True, 'optimize_zeros':False, 'optimize_determinants':True}
         else:
             raise Exception("Did not expect",wildcards.orbitals)
         if n==0:
@@ -116,7 +119,7 @@ rule OPTIMIZE_HCI:
         elif wildcards.orbitals=='fixed':
             slater_kws={'optimize_orbitals':False}
         elif wildcards.orbitals=='large':
-            slater_kws={'optimize_orbitals':True, 'optimize_zeros':False}
+            slater_kws={'optimize_orbitals':True, 'optimize_zeros':False, 'optimize_determinants':True}
         else:
             raise Exception("Did not expect",wildcards.orbitals)
 

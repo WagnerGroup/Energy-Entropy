@@ -1,9 +1,11 @@
 import h5py
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+# import matplotlib.pyplot as plt
+# import seaborn as sns
 import pandas as pd
 import pyqmc.obdm
+import os.path
+from os import path
 
 
 def compute_entropy(rdm, noise=0.0):
@@ -42,24 +44,6 @@ def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0):
     wr = wr[wr>0.0]
     return w, -np.sum(wr*np.log(wr))
 
-
-def make_eigenvalue_plot(rdm, method='cc', sigma=0.01, epsilon=0.0):
-    fig, axes = plt.subplots(1,3,figsize=(9,3), sharey=True)
-    for ax,noise in zip(axes, [0.0, sigma/2.0, sigma]):
-        noise = np.sqrt(epsilon**2 + noise**2)
-        w, s = compute_entropy(rdm, noise)
-        # if len(rdm.shape)==2: 
-        circle1 = plt.Circle((0, 0), noise*np.sqrt(rdm.shape[1]), color='r', alpha=0.2)
-        ax.add_patch(circle1)
-        ax.scatter(w.real, w.imag, label=f"{noise}",s=2)
-
-        ax.set_title(f"{noise}")
-        ax.set_xlim(-0.1,0.3)
-        ax.set_xlabel("Re $\lambda_i$")
-    axes[0].set_ylabel("Im $\lambda_i$")
-    plt.savefig("("+method+")entropy_eigenvalue_plot.pdf", bbox_inches='tight')
-
-
 def generate_entropy_noise(rdm, N=6, epsilon=0.0, sigma=0.01):
     df = []
     for noise in np.linspace(0, sigma, 20):
@@ -71,17 +55,6 @@ def generate_entropy_noise(rdm, N=6, epsilon=0.0, sigma=0.01):
     df = pd.DataFrame(df)
     return df
 
-
-def plot_entropy_noise(df,method='cc'):
-    plt.figure(figsize=(3,3))
-    sns.regplot(x='x',y='symmetrize', label='Symmetrize', data=df)
-    sns.regplot(x='x',y='filter',label='Enforce positivity', data=df)
-    sns.regplot(x='x',y='aggressive', label='Circle reject', data=df)
-
-    plt.legend()
-    plt.xlabel('Noise x')
-    plt.ylabel("Estimated entropy per atom")
-    plt.savefig("("+method+")entropy_noise.pdf",bbox_inches='tight')
 
 def avg(data):
     mean = np.mean(data,axis=0)
@@ -107,8 +80,22 @@ def extrapolate_rdm(fname,warmup=2):
     mixed_dm, mixed_dm_err = read_rdm(fname,warmup)
     vmc_fname = fname.replace("dmc","vmc")
     vmc_fname = vmc_fname.replace("_0.02.chk",".chk")
-    vmc_dm, vmc_dm_err = read_rdm(vmc_fname)
-    extrapolated_dm = 2 * mixed_dm - vmc_dm
-    extrapolated_dm_err = np.sqrt( 4 * mixed_dm_err**2 + vmc_dm_err**2)
-    return extrapolated_dm, extrapolated_dm_err
+
+    if path.exists(vmc_fname):
+        vmc_dm, vmc_dm_err = read_rdm(vmc_fname)
+        extrapolated_dm = 2 * mixed_dm - vmc_dm
+        extrapolated_dm_err = np.sqrt( 4 * mixed_dm_err**2 + vmc_dm_err**2)
+        return extrapolated_dm, extrapolated_dm_err
+    else: 
+        print("Missing VMC")
+        return mixed_dm, mixed_dm_err
+### also compute other properties
+
+def compute_trace(dm):
+    if len(dm.shape) == 2:
+        dm = np.asarray([dm/2.0,dm/2.0])
+    t = dm - np.matmul(dm,dm)
+    u,v = np.linalg.eig(t)
+    # u = u[u>0]
+    return np.sum(u).real
 
