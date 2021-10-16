@@ -33,7 +33,7 @@ rule HCI:
     input: "{dir}/mf.chk"
     output: "{dir}/hci{tol}.chk"
     resources:
-        walltime="8:00:00", partition=partition
+        walltime="72:00:00", partition=partition
     run:
         functions.run_hci(input[0],output[0], float(wildcards.tol), nroots=nroots)
 
@@ -148,7 +148,7 @@ rule VMC:
             multideterminant = wildcards.dir+"/"+startingwf+".chk"
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
-            functions.evaluate_vmc(input.mf, multideterminant, input.opt, output[0], nconfig=8000, nblocks=60, client=client, npartitions=qmc_threads)
+            functions.evaluate_vmc(input.mf, multideterminant, input.opt, output[0], nconfig=8000, nblocks=150, client=client, npartitions=qmc_threads)
 
 
 rule DMC:
@@ -163,6 +163,6 @@ rule DMC:
         if 'hci' in startingwf:
             multideterminant = wildcards.dir+"/"+startingwf+".chk"
         tstep = float(wildcards.tstep)
-        nsteps = int(30/tstep)
+        nsteps = int(120/tstep) ###
         with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
             functions.evaluate_dmc(input.mf, multideterminant, input.opt, output[0], tstep=tstep, nsteps=nsteps, nconfig=8000, client=client, npartitions=qmc_threads)
