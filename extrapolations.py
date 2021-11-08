@@ -79,7 +79,12 @@ def read_rdm(fname, warmup=2):
 def extrapolate_rdm(fname,warmup=2):
     mixed_dm, mixed_dm_err = read_rdm(fname,warmup)
     vmc_fname = fname.replace("dmc","vmc")
-    vmc_fname = vmc_fname.replace("_0.02.chk",".chk")
+    variables = fname.split('/')[-1].split('_')[1:]
+    if "0.02" in variables[-1]: 
+        vmc_fname = vmc_fname.replace("_"+variables[-1],".chk")
+    else: 
+        vmc_fname = vmc_fname.replace("_0.02","")
+        vmc_fname = vmc_fname.replace("_"+variables[-1],".chk")
 
     if path.exists(vmc_fname):
         vmc_dm, vmc_dm_err = read_rdm(vmc_fname)
@@ -89,8 +94,9 @@ def extrapolate_rdm(fname,warmup=2):
     else: 
         print("Missing VMC")
         return mixed_dm, mixed_dm_err
-### also compute other properties
 
+
+### also compute other properties
 def compute_trace(dm):
     if len(dm.shape) == 2:
         dm = np.asarray([dm/2.0,dm/2.0])

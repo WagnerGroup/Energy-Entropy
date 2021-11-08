@@ -86,21 +86,27 @@ def read_vmc(fname, warmup=2):
     with h5py.File(fname,'r') as f:
         energy = f['energytotal'][warmup:,...]
         e_tot,error = extrapolations.avg(energy)
+        blocks = len(f['block'])
     
     rdm1, rdm1_err = extrapolations.read_rdm(fname,warmup)
     _, entropy = extrapolations.compute_entropy_aggressive(rdm1, epsilon=np.mean(rdm1_err))
     trace_object = extrapolations.compute_trace(rdm1)
-    return e_tot, error, entropy, trace_object #errorbar?
+    return e_tot, error, entropy, blocks #, trace_object
 
 def read_dmc(fname, warmup=2):
     with h5py.File(fname,'r') as f:
         energy = f['energytotal'][warmup:,...]
         e_tot,error = extrapolations.avg(energy)
+
+        tstep = np.array(f['tstep'])[0]
+        branchtime = np.array(f['nsteps'])[0]
+        # print(tstep, branchtime)
+        nsteps = int(len(f['step'])*tstep*branchtime)
     
     rdm1, rdm1_err = extrapolations.extrapolate_rdm(fname,warmup)
     _, entropy = extrapolations.compute_entropy_aggressive(rdm1, epsilon=np.mean(rdm1_err))
     trace_object = extrapolations.compute_trace(rdm1)
-    return e_tot, error, entropy, trace_object
+    return e_tot, error, entropy, nsteps #, trace_object
 
 def store_hf_energy(fname):
     spl = fname.split('/')
@@ -112,12 +118,14 @@ def store_hf_energy(fname):
 def read(fname, method):
     e_tot, error, entropy = 0.0, 0.0, 0.0
     determinants = "/"
-    e_corr, trace = 0.0, 0.0
+    # e_corr, trace = 0.0, 0.0
+    blocks, nsteps = "/", "/"
+
     if 'vmc' in method:
-        e_tot, error, entropy, trace = read_vmc(fname)
+        e_tot, error, entropy, blocks = read_vmc(fname)
         determinants = track_opt_determinants(fname)
     elif 'dmc' in method:
-        e_tot, error, entropy, trace = read_dmc(fname)
+        e_tot, error, entropy, nsteps = read_dmc(fname)
     else: 
         with h5py.File(fname,'r') as f:
             if 'hf' in method: 
@@ -136,11 +144,11 @@ def read(fname, method):
                 determinants = f['ci']['_strs'][()].shape[0]
                 rdm1 = np.array(f['ci']['rdm'])
                 _, entropy = extrapolations.compute_entropy_aggressive(rdm1)
-                trace = extrapolations.compute_trace(rdm1)
+                # trace = extrapolations.compute_trace(rdm1)
 
-    e_hf = store_hf_energy(fname)
-    e_corr = e_hf - e_tot
-    return determinants, e_tot, error, entropy, e_corr, trace
+    # e_hf = store_hf_energy(fname)
+    # e_corr = e_hf - e_tot
+    return determinants, e_tot, error, entropy, blocks, nsteps #, e_corr, trace
 
 def create(fname):
     record = extract_from_fname(fname)
@@ -148,15 +156,15 @@ def create(fname):
     if record["molecule"][0] == 'h':
         N = int(record["molecule"][1:])
     method = record["method"]
-    determinants, e_tot, error, entropy, e_corr, trace = read(fname, method)
+    determinants, e_tot, error, entropy, blocks, nsteps = read(fname, method)
     record.update({
+           "blocks": blocks,
+           "nsteps": nsteps, 
            "ndet": determinants,
            "natom": N,
            "energy/N": e_tot/N,
            "error/N": error/N,
            "entropy/N": entropy/N,
-           "corrE/N": e_corr/N, 
-           "rdm1_trace/N": trace/N
     })
     return record
 

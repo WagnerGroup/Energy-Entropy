@@ -160,14 +160,14 @@ rule VMC:
 
             determinant_cutoff = wildcards.variables.split('_')[1]
             slater_kws['tol'] = float(determinant_cutoff)
-
+        nblocks = 150
         with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
-            functions.evaluate_vmc(input.mf, multideterminant, input.opt, output[0], slater_kws=slater_kws, nconfig=8000, nblocks=150, client=client, npartitions=qmc_threads)
+            functions.evaluate_vmc(input.mf, multideterminant, input.opt, output[0], slater_kws=slater_kws, nconfig=8000, nblocks=nblocks, client=client, npartitions=qmc_threads)
 
 
 rule DMC:
     input: mf = "{dir}/mf.chk", opt = "{dir}/opt_{variables}.chk"
-    output: "{dir}/dmc_{variables}_{tstep}.chk"
+    output: "{dir}/dmc_{variables}_{tstep}_{nstep}.chk"
     threads: qmc_threads
     resources:
         walltime="24:00:00", partition=partition
@@ -192,6 +192,6 @@ rule DMC:
             slater_kws['tol'] = float(determinant_cutoff)
 
         tstep = float(wildcards.tstep)
-        nsteps = int(120/tstep) ###
+        nsteps = int(nstep/tstep) ###
         with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
             functions.evaluate_dmc(input.mf, multideterminant, input.opt, output[0], slater_kws=slater_kws, tstep=tstep, nsteps=nsteps, nconfig=8000, client=client, npartitions=qmc_threads)
