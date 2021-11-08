@@ -144,11 +144,25 @@ rule VMC:
     run:
         multideterminant = None
         startingwf = input.opt.split('/')[-1].split('_')[1]
+        slater_kws = None
         if 'hci' in startingwf:
             multideterminant = wildcards.dir+"/"+startingwf+".chk"
 
+            orbitals = wildcards.variables.split('_')[2]
+            if orbitals=='orbitals':
+                slater_kws={'optimize_orbitals':True}
+            elif orbitals=='fixed':
+                slater_kws={'optimize_orbitals':False}
+            elif orbitals=='large':
+                slater_kws={'optimize_orbitals':True, 'optimize_zeros':False, 'optimize_determinants':True}
+            else:
+                raise Exception("Did not expect",wildcards.orbitals)
+
+            determinant_cutoff = wildcards.variables.split('_')[1]
+            slater_kws['tol'] = float(determinant_cutoff)
+
         with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
-            functions.evaluate_vmc(input.mf, multideterminant, input.opt, output[0], nconfig=8000, nblocks=150, client=client, npartitions=qmc_threads)
+            functions.evaluate_vmc(input.mf, multideterminant, input.opt, output[0], slater_kws=slater_kws, nconfig=8000, nblocks=150, client=client, npartitions=qmc_threads)
 
 
 rule DMC:
@@ -160,9 +174,24 @@ rule DMC:
     run:
         multideterminant = None
         startingwf = input.opt.split('/')[-1].split('_')[1]
+        slater_kws = None
         if 'hci' in startingwf:
             multideterminant = wildcards.dir+"/"+startingwf+".chk"
+
+            orbitals = wildcards.variables.split('_')[2]
+            if orbitals=='orbitals':
+                slater_kws={'optimize_orbitals':True}
+            elif orbitals=='fixed':
+                slater_kws={'optimize_orbitals':False}
+            elif orbitals=='large':
+                slater_kws={'optimize_orbitals':True, 'optimize_zeros':False, 'optimize_determinants':True}
+            else:
+                raise Exception("Did not expect",wildcards.orbitals)
+
+            determinant_cutoff = wildcards.variables.split('_')[1]
+            slater_kws['tol'] = float(determinant_cutoff)
+
         tstep = float(wildcards.tstep)
         nsteps = int(120/tstep) ###
         with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
-            functions.evaluate_dmc(input.mf, multideterminant, input.opt, output[0], tstep=tstep, nsteps=nsteps, nconfig=8000, client=client, npartitions=qmc_threads)
+            functions.evaluate_dmc(input.mf, multideterminant, input.opt, output[0], slater_kws=slater_kws, tstep=tstep, nsteps=nsteps, nconfig=8000, client=client, npartitions=qmc_threads)

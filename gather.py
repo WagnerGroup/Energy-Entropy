@@ -167,6 +167,8 @@ if __name__=="__main__":
     for name in glob.glob('**/*.chk',recursive=True):
         if "opt" in name:
             continue
+        if name[0] != 'h':
+            continue
         fname.append(name)
 
     df = pd.DataFrame([create(name) for name in fname])
