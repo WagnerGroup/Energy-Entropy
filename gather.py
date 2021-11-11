@@ -1,12 +1,18 @@
 import h5py
 import numpy as np
 from scipy import stats
+import pyqmc.api as pyq
 import pyqmc.obdm
 import itertools
 import pandas as pd
 import glob 
+import os.path
+from os import path
 # import gather_entropy
-import extrapolations
+# import extrapolations
+# from extrapolations import avg, read_rdm, extrapolate_rdm, compute_entropy_aggressive, compute_trace
+
+################################### read general variables from filenames ########################
 
 def separate_variables_in_mcfname(spl):
     method = spl[0]
@@ -82,31 +88,7 @@ def track_opt_determinants(fname):
     return determinants #, it
 
 
-def read_vmc(fname, warmup=2):
-    with h5py.File(fname,'r') as f:
-        energy = f['energytotal'][warmup:,...]
-        e_tot,error = extrapolations.avg(energy)
-        blocks = len(f['block'])
-    
-    rdm1, rdm1_err = extrapolations.read_rdm(fname,warmup)
-    _, entropy = extrapolations.compute_entropy_aggressive(rdm1, epsilon=np.mean(rdm1_err))
-    trace_object = extrapolations.compute_trace(rdm1)
-    return e_tot, error, entropy, blocks #, trace_object
-
-def read_dmc(fname, warmup=2):
-    with h5py.File(fname,'r') as f:
-        energy = f['energytotal'][warmup:,...]
-        e_tot,error = extrapolations.avg(energy)
-
-        tstep = np.array(f['tstep'])[0]
-        branchtime = np.array(f['nsteps'])[0]
-        # print(tstep, branchtime)
-        nsteps = int(len(f['step'])*tstep*branchtime)
-    
-    rdm1, rdm1_err = extrapolations.extrapolate_rdm(fname,warmup)
-    _, entropy = extrapolations.compute_entropy_aggressive(rdm1, epsilon=np.mean(rdm1_err))
-    trace_object = extrapolations.compute_trace(rdm1)
-    return e_tot, error, entropy, nsteps #, trace_object
+################################### compute related-properties ########################
 
 def store_hf_energy(fname):
     spl = fname.split('/')
@@ -114,6 +96,76 @@ def store_hf_energy(fname):
     with h5py.File(folder,'r') as f:
         e_hf = f['scf']['e_tot'][()]
     return e_hf
+
+def compute_entropy_aggressive(rdm, epsilon=0.0, noise=0.0):
+    if len(rdm.shape) == 2:
+        rdm = np.asarray([rdm/2.0,rdm/2.0])
+
+    dm = rdm + np.random.randn(*rdm.shape)*noise
+    w = np.linalg.eigvals(dm)
+    radius = np.sqrt(epsilon**2+noise**2)*np.sqrt(rdm.shape[1]) ###
+    wr = w[ np.abs(w)>radius ].real 
+    wr = wr[wr>0.0]
+    return w, -np.sum(wr*np.log(wr))
+
+################################### read rdm and entropy from QMC ########################
+
+def read_rdm(fname, warmup=2, reblock=20):
+    dat = pyq.read_mc_output(fname, warmup, reblock)
+    rdm1_up = pyqmc.obdm.normalize_obdm(dat['rdm1_upvalue'], dat['rdm1_upnorm'])
+    rdm1_up_err = pyqmc.obdm.normalize_obdm(dat['rdm1_upvalue_err'], dat['rdm1_upnorm'])
+    rdm1_down = pyqmc.obdm.normalize_obdm(dat['rdm1_downvalue'], dat['rdm1_downnorm'])
+    rdm1_down_err = pyqmc.obdm.normalize_obdm(dat['rdm1_downvalue_err'], dat['rdm1_downnorm'])
+    rdm1 = np.array([rdm1_up,rdm1_down])
+    rdm1_err = np.array([rdm1_up_err, rdm1_down_err])
+    return rdm1, rdm1_err
+
+def change_to_vmc_fname(dmc_fname):
+    vmc_fname = dmc_fname.replace("dmc","vmc")
+    variables = dmc_fname.split('/')[-1].split('_')[1:]
+    if "0.02" in variables[-1]: 
+        vmc_fname = vmc_fname.replace("_"+variables[-1],".chk")
+    else: 
+        vmc_fname = vmc_fname.replace("_0.02","")
+        vmc_fname = vmc_fname.replace("_"+variables[-1],".chk")
+    return vmc_fname
+
+def extrapolate_rdm(fname,warmup = 2, reblock = 20):
+    mixed_dm, mixed_dm_err = read_rdm(fname,warmup)
+    vmc_fname = change_to_vmc_fname(fname)
+    if path.exists(vmc_fname):
+        vmc_dm, vmc_dm_err = read_rdm(vmc_fname, warmup, reblock)
+        extrapolated_dm = 2 * mixed_dm - vmc_dm
+        extrapolated_dm_err = np.sqrt( 4 * mixed_dm_err**2 + vmc_dm_err**2)
+        return extrapolated_dm, extrapolated_dm_err
+    else: 
+        print("Missing VMC")
+        return mixed_dm, mixed_dm_err
+
+def read_vmc(fname, warmup=2, reblock=20):
+    with h5py.File(fname,'r') as f:
+        blocks = len(f['block'])
+    
+    dat = pyq.read_mc_output(fname, warmup, reblock)
+    e_tot, error = dat['energytotal'], dat['energytotal_err']
+    rdm1, rdm1_err = read_rdm(fname, warmup, reblock)
+    _, entropy = compute_entropy_aggressive(rdm1, epsilon=np.mean(rdm1_err))
+    return e_tot, error, entropy, blocks #, trace_object
+
+def read_dmc(fname, warmup=2, reblock=20):
+    with h5py.File(fname,'r') as f:
+        tstep = np.array(f['tstep'])[0]
+        branchtime = np.array(f['nsteps'])[0]
+        # print(tstep, branchtime)
+        nsteps = int(len(f['step'])*tstep*branchtime)
+    dat = pyq.read_mc_output(fname, warmup, reblock)
+    e_tot, error = dat['energytotal'], dat['energytotal_err']
+    rdm1, rdm1_err = extrapolate_rdm(fname, warmup, reblock)
+    _, entropy = compute_entropy_aggressive(rdm1, epsilon=np.mean(rdm1_err))
+    # trace_object = compute_trace(rdm1)
+    return e_tot, error, entropy, nsteps #, trace_object
+
+################################### gather ########################################
 
 def read(fname, method):
     e_tot, error, entropy = 0.0, 0.0, 0.0
@@ -126,6 +178,7 @@ def read(fname, method):
         determinants = track_opt_determinants(fname)
     elif 'dmc' in method:
         e_tot, error, entropy, nsteps = read_dmc(fname)
+        determinants = track_opt_determinants(change_to_vmc_fname(fname))
     else: 
         with h5py.File(fname,'r') as f:
             if 'hf' in method: 
@@ -133,18 +186,17 @@ def read(fname, method):
                 determinants = 1
             elif 'fci' in method:
                 e_tot = np.array(f['e_tot'][()])[0] #state_0,1,2,3, 
-            
             elif 'cc' in method:
                 e_tot = f['ccsd']['energy'][()]
                 rdm1 = np.array(f['ccsd']['rdm'])
-                _, entropy = extrapolations.compute_entropy_aggressive(rdm1)
-                trace = extrapolations.compute_trace(rdm1)
+                _, entropy = compute_entropy_aggressive(rdm1)
+                # trace = compute_trace(rdm1)
             elif 'hci' in method:
                 e_tot = np.array(f['ci']['energy'])[0] 
                 determinants = f['ci']['_strs'][()].shape[0]
                 rdm1 = np.array(f['ci']['rdm'])
-                _, entropy = extrapolations.compute_entropy_aggressive(rdm1)
-                # trace = extrapolations.compute_trace(rdm1)
+                _, entropy = compute_entropy_aggressive(rdm1)
+                # trace = compute_trace(rdm1)
 
     # e_hf = store_hf_energy(fname)
     # e_corr = e_hf - e_tot
