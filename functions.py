@@ -59,6 +59,7 @@ def run_hci(hf_chkfile, chkfile, select_cutoff=0.1, nroots=4):
     h2 = pyscf.ao2mo.full(mol, mf.mo_coeff)
     e, civec = cisolver.kernel(h1, h2, nmo, nelec, verbose=0)
     cisolver.ci= np.array(civec)
+    print(civec)
     rdm1,rdm2 = cisolver.make_rdm12s(civec[0], nmo, nelec)
     pyscf.lib.chkfile.save(chkfile,'ci',
         {'ci':cisolver.ci,
@@ -109,3 +110,4 @@ def run_ccsd(hf_chkfile, chkfile):
         'energy':mycc.ccsd_t(),
         'rdm':dm1_t
         })
+
