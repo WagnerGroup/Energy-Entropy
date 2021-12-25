@@ -66,7 +66,7 @@ def extract_from_fname(fname):
 
 
 def track_opt_determinants(fname):
-    """ changed in 12-2
+    """ 
     """
     if 'vmc' in fname:
         opt_fname = fname.replace("vmc","opt")
@@ -74,14 +74,18 @@ def track_opt_determinants(fname):
         opt_fname = fname.replace("dmc","opt")
         variables = fname.split('/')[-1].split('_')[1:]
         opt_fname = opt_fname.replace("_"+variables[-1],".chk")
-
+    else:
+        opt_fname = fname
+    opt_nblock = opt_fname.split('/')[-1].split('.chk')[0].split('_')[-1]
     with h5py.File(opt_fname,'r') as f:
         # print(list(f.keys()))
         if 'wf1det_coeff' in list(f['wf'].keys()):
             determinants = np.array(f['wf']['wf1det_coeff']).shape[0]
         else:
             determinants = 1
-    return determinants
+        opt_energy = np.mean(f['energy'],axis=0)
+        opt_err = np.std(f['energy'],axis=0)/np.sqrt(len(f['energy'])-1)
+    return determinants, opt_nblock, opt_energy, opt_err
 
 
 ################################### compute related-properties ########################
@@ -165,7 +169,6 @@ def read_mc(fname, warmup=2, reblock=20):
     """
     dat = pyq.read_mc_output(fname, warmup, reblock)
     e_tot, error = dat['energytotal'], dat['energytotal_err']
-    determinants = track_opt_determinants(fname)
     nblocks, nsteps = "/", "/"
     if 'vmc' in fname:
         rdm1, rdm1_err = read_rdm(fname, warmup, reblock)
@@ -182,7 +185,7 @@ def read_mc(fname, warmup=2, reblock=20):
         print("exception")
     epsilon = np.mean(rdm1_err)
     entropy_min, entropy_max = compute_entropy_aggressive(rdm1, epsilon=epsilon)
-    return determinants, e_tot, error, epsilon, entropy_min, entropy_max, nblocks, nsteps
+    return e_tot, error, epsilon, entropy_min, entropy_max, nblocks, nsteps
     
 
 
@@ -193,10 +196,14 @@ def read(fname, method):
     entropy_min, entropy_max = 0.0, 0.0
     determinants = "/"
     # e_corr, trace = 0.0, 0.0
-    nblocks, nsteps = "/", "/"
+    opt_nblocks, vmc_nblocks, dmc_nsteps = "/", "/", "/"
     rdm_err = 0.0
-    if 'mc' in method:
-        determinants, e_tot, error, rdm_err, entropy_min, entropy_max, nblocks, nsteps = read_mc(fname)
+    if 'opt' in method:
+        determinants, opt_nblocks, opt_e, opt_err = track_opt_determinants(fname)
+        e_tot, error = opt_e, opt_err 
+    elif 'mc' in method:
+        determinants, opt_nblocks, opt_e, opt_err = track_opt_determinants(fname)
+        e_tot, error, rdm_err, entropy_min, entropy_max, vmc_nblocks, dmc_nsteps = read_mc(fname)
     else: 
         with h5py.File(fname,'r') as f:
             if 'hf' in method: 
@@ -220,7 +227,7 @@ def read(fname, method):
 
     # e_hf = store_hf_energy(fname)
     # e_corr = e_hf - e_tot
-    return determinants, e_tot, error, rdm_err, entropy_min, entropy_max, nblocks, nsteps #, e_corr, trace
+    return determinants, opt_nblocks, e_tot, error, rdm_err, entropy_min, entropy_max, vmc_nblocks, dmc_nsteps #, e_corr, trace
 
 def create(fname):
     print(fname)
@@ -229,11 +236,12 @@ def create(fname):
     if record["molecule"][0] == 'h':
         N = int(record["molecule"][1:])
     method = record["method"]
-    determinants, e_tot, error, rdm_err, entropy_min, entropy_max, nblocks, nsteps = read(fname, method)
+    determinants, opt_nblocks, e_tot, error, rdm_err, entropy_min, entropy_max, vmc_nblocks, dmc_nsteps = read(fname, method)
     record.update({
-           "nblocks": nblocks,
-           "nsteps": nsteps, 
            "ndet": determinants,
+           "opt_nblocks": opt_nblocks, 
+           "vmc_nblocks": vmc_nblocks,
+           "dmc_nsteps": dmc_nsteps, 
            "energy/N": e_tot/N,
            "error/N": error/N,
            "rdm_err/N": rdm_err/N, 
@@ -250,8 +258,6 @@ if __name__=="__main__":
         if "archive" in name:
             continue
         if name[0] != 'h':
-            continue
-        if "opt" in name:
             continue
         fname.append(name)
 
