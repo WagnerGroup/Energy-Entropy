@@ -56,6 +56,34 @@ def opt_dependency(wildcards):
         d["load_parameters"] = basefile
     return d
 
+rule OPTIMIZE_MF:
+    input: unpack(opt_dependency), mf = "{dir}/mf.chk"
+    output: "{dir}/opt_mf_{nblocks}.chk"
+    threads: qmc_threads
+    resources:
+        walltime="72:00:00", partition=partition
+    run:
+        nconfig = 400
+        vmcoptions = {'nblocks':int(wildcards.nblocks)}
+        slater_kws={'optimize_orbitals':True, 
+                    'optimize_zeros':False,
+                    'optimize_determinants':True,
+                  }
+        load_parameters = None
+        if hasattr(input, 'load_parameters'):
+            load_parameters=input.load_parameters
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
+            pyq.OPTIMIZE(input.mf, 
+                        output[0],
+                        ci_checkfile=None, 
+                        load_parameters = load_parameters,                      
+                        slater_kws=slater_kws, 
+                        nconfig = nconfig, 
+                        vmcoptions = vmcoptions, 
+                        client=client, 
+                        npartitions=qmc_threads)
+        
 
 rule OPTIMIZE_HCI:
     input: unpack(opt_dependency), mf = "{dir}/mf.chk", hci="{dir}/hci{hci_tol}.chk"
@@ -93,16 +121,18 @@ rule VMC:
         walltime="24:00:00", partition=partition
     run:
         slater_kws = None
+        ci_chkfile = None
         variables = wildcards.variables.split('_')
         startingwf = variables[0]
         if 'hci' in startingwf:
             determinant_cutoff = variables[1]
             slater_kws={'tol':float(determinant_cutoff)}
+            ci_chkfile = wildcards.dir+"/"+startingwf+".chk"
         with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
             pyq.VMC(input.mf, 
                     output[0],
                     load_parameters = input.opt, 
-                    ci_checkfile = wildcards.dir+"/"+startingwf+".chk",                 
+                    ci_checkfile = ci_chkfile,                 
                     slater_kws = slater_kws, 
                     accumulators = {"energy": True, "rdm1": True},
                     nconfig = 1000, 
@@ -119,17 +149,18 @@ rule DMC:
         walltime="24:00:00", partition=partition
     run:
         slater_kws = None
+        ci_chkfile = None
         variables = wildcards.variables.split('_')
         startingwf = variables[0]
         if 'hci' in startingwf:
             determinant_cutoff = variables[1]
             slater_kws={'tol':float(determinant_cutoff)}
-
+            ci_chkfile = wildcards.dir+"/"+startingwf+".chk"
         with concurrent.futures.ProcessPoolExecutor(max_workers=qmc_threads) as client:
             pyq.DMC(input.mf, 
                     output[0],
                     load_parameters = input.opt, 
-                    ci_checkfile = wildcards.dir+"/"+startingwf+".chk",                
+                    ci_checkfile = ci_chkfile,                
                     slater_kws=slater_kws, 
                     accumulators = {"energy": True, "rdm1": True},
                     nconfig = 1000, 
