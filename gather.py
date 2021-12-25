@@ -28,6 +28,7 @@ def separate_variables_in_mcfname(spl):
     if "hci" in startingwf:
         method += "_hci"
         tol = startingwf[3:]
+        startingwf = "hci"
     elif "mf" in startingwf:
         method += "_sj"
     else:
@@ -262,5 +263,5 @@ if __name__=="__main__":
         fname.append(name)
 
     df = pd.DataFrame([create(name) for name in fname])
-    df = df.sort_values(by=['molecule','bond_length','hci_tol', 'det_cutoff', 'method'])
+    df = df.sort_values(by=['molecule','bond_length','hci_tol','det_cutoff','method','opt_nblocks'])
     df.to_csv("data.csv", index=False)
