@@ -2,7 +2,7 @@ import functions
 import concurrent
 import numpy as np
 import pyqmc.api as pyq
-qmc_threads=2
+qmc_threads=20
 partition="wagner"
 import json
 
@@ -61,7 +61,7 @@ rule OPTIMIZE_MF:
     output: "{dir}/opt_mf_{nblocks}.chk"
     threads: qmc_threads
     resources:
-        walltime="72:00:00", partition=partition
+        walltime="4:00:00", partition=partition
     run:
         nconfig = 400
         vmcoptions = {'nblocks':int(wildcards.nblocks)}
@@ -118,7 +118,7 @@ rule VMC:
     output: "{dir}/vmc_{variables}.chk"
     threads: qmc_threads
     resources:
-        walltime="24:00:00", partition=partition
+        walltime="4:00:00", partition=partition
     run:
         slater_kws = None
         ci_chkfile = None
@@ -136,7 +136,7 @@ rule VMC:
                     slater_kws = slater_kws, 
                     accumulators = {"energy": True, "rdm1": True},
                     nconfig = 1000, 
-                    nblocks = 60, 
+                    nblocks = 150, 
                     client=client, 
                     npartitions=qmc_threads)
 
@@ -146,7 +146,7 @@ rule DMC:
     output: "{dir}/dmc_{variables}_{tstep}.chk"
     threads: qmc_threads
     resources:
-        walltime="24:00:00", partition=partition
+        walltime="4:00:00", partition=partition
     run:
         slater_kws = None
         ci_chkfile = None
@@ -165,6 +165,6 @@ rule DMC:
                     accumulators = {"energy": True, "rdm1": True},
                     nconfig = 1000, 
                     tstep=float(wildcards.tstep), 
-                    nsteps=int(30/float(wildcards.tstep)),
+                    nsteps=int(120/float(wildcards.tstep)),
                     client=client, 
                     npartitions=qmc_threads)
