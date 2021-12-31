@@ -26,11 +26,8 @@ def separate_variables_in_mcfname(spl):
     if "dmc" in method:
         method += spl[-1]
     if "hci" in startingwf:
-        method += "_hci"
         tol = startingwf[3:]
         startingwf = "hci"
-    elif "mf" in startingwf:
-        method += "_sj"
     else:
         print("exception")
 
@@ -45,7 +42,7 @@ def extract_from_fname(fname):
         spl_2 = spl[3].split('_')
         method, startingwf, determinant_cutoff, tol = separate_variables_in_mcfname(spl_2)
         if (startingwf == "mf"):
-            startingwf = spl[1]
+            startingwf = "sj"
     else: 
         startingwf = spl[1]
         tol, determinant_cutoff = "/", "/"
@@ -84,8 +81,9 @@ def track_opt_determinants(fname):
             determinants = np.array(f['wf']['wf1det_coeff']).shape[0]
         else:
             determinants = 1
-        opt_energy = np.mean(f['energy'],axis=0)
-        opt_err = np.std(f['energy'],axis=0)/np.sqrt(len(f['energy'])-1)
+        df = pyq.read_opt(opt_fname)
+        opt_energy = np.array(df['energy'])[-1]
+        opt_err  = np.array(df['error'])[-1]
     return determinants, opt_nblock, opt_energy, opt_err
 
 
@@ -129,7 +127,9 @@ def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0):
 
 ################################### read rdm and entropy from QMC ########################
 
-def read_rdm(fname, warmup=2, reblock=20):
+def read_rdm(fname, warmup = 50, reblock = None):
+    """ read rdm from vmc chkfiles, no need for warmup and reblock
+    """
     dat = pyq.read_mc_output(fname, warmup, reblock)
     print(list(dat.keys()))
     rdm1_up = pyqmc.obdm.normalize_obdm(dat['rdm1_upvalue'], dat['rdm1_upnorm'])
@@ -151,13 +151,13 @@ def change_to_vmc_fname(dmc_fname):
         vmc_fname = vmc_fname.replace("_"+variables[-1],".chk")
     return vmc_fname
 
-def extrapolate_rdm(fname,warmup = 2, reblock = 20):
+def extrapolate_rdm(fname, warmup = 50, reblock = 20):
+    """ read rdm from dmc chkfiles
     """
-    """
-    mixed_dm, mixed_dm_err = read_rdm(fname,warmup)
+    mixed_dm, mixed_dm_err = read_rdm(fname, warmup, reblock)
     vmc_fname = change_to_vmc_fname(fname)
     if path.exists(vmc_fname):
-        vmc_dm, vmc_dm_err = read_rdm(vmc_fname, warmup, reblock)
+        vmc_dm, vmc_dm_err = read_rdm(vmc_fname)
         extrapolated_dm = 2 * mixed_dm - vmc_dm
         extrapolated_dm_err = np.sqrt( 4 * mixed_dm_err**2 + vmc_dm_err**2)
         return extrapolated_dm, extrapolated_dm_err
@@ -165,17 +165,21 @@ def extrapolate_rdm(fname,warmup = 2, reblock = 20):
         print("Missing VMC")
         return mixed_dm, mixed_dm_err
 
-def read_mc(fname, warmup=2, reblock=20):
+def read_mc(fname):
     """
     """
-    dat = pyq.read_mc_output(fname, warmup, reblock)
-    e_tot, error = dat['energytotal'], dat['energytotal_err']
     nblocks, nsteps = "/", "/"
+    warmup = 50
     if 'vmc' in fname:
-        rdm1, rdm1_err = read_rdm(fname, warmup, reblock)
+        dat = pyq.read_mc_output(fname, warmup)
+        e_tot, error = dat['energytotal'], dat['energytotal_err']
+        rdm1, rdm1_err = read_rdm(fname)
         with h5py.File(fname,'r') as f:
             nblocks = len(f['block'])
     elif 'dmc' in fname:
+        reblock = 20   
+        dat = pyq.read_mc_output(fname, warmup, reblock)
+        e_tot, error = dat['energytotal'], dat['energytotal_err']
         rdm1, rdm1_err = extrapolate_rdm(fname, warmup, reblock)
         with h5py.File(fname,'r') as f:
             tstep = np.array(f['tstep'])[0]
