@@ -126,23 +126,25 @@ def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0):
     wr = w[ np.abs(w)>radius ].real
     wr = wr[wr>0.0]
     entropy_baseline = -np.sum(wr*np.log(wr))
-    print(entropy_baseline/6)
-    num_exclude = np.sum(wr>0.0)
-    trace = np.sum(wr)
-    trace_missing = np.ceil(trace)-trace
+    if epsilon==0.0:
+        return entropy_baseline, entropy_baseline
+    else: 
+        num_exclude = np.sum(wr>0.0)
+        trace = np.sum(wr)
+        trace_missing = np.ceil(trace)-trace
 
-    w_best = trace_missing
-    missing_entropy_min = -w_best*np.log(w_best)
-    entropy_min = entropy_baseline + missing_entropy_min
-    
-    w_worst = np.ones(num_exclude)*trace_missing/num_exclude
-    missing_entropy_max = -np.sum(w_worst*np.log(w_worst))
-    entropy_max = entropy_baseline + missing_entropy_max
+        w_best = trace_missing
+        missing_entropy_min = -w_best*np.log(w_best)
+        entropy_min = entropy_baseline + missing_entropy_min
+        
+        w_worst = np.ones(num_exclude)*trace_missing/num_exclude
+        missing_entropy_max = -np.sum(w_worst*np.log(w_worst))
+        entropy_max = entropy_baseline + missing_entropy_max
 
-    print('excluded', num_exclude, 'trace missing', trace_missing,
-            'minimum missing entropy', missing_entropy_min,
-            'maximum missing entropy', missing_entropy_max )
-    return entropy_min, entropy_max
+        print('excluded', num_exclude, 'trace missing', trace_missing,
+                'minimum missing entropy', missing_entropy_min,
+                'maximum missing entropy', missing_entropy_max )
+        return entropy_min, entropy_max
 
 
 ################################### read rdm and entropy from QMC ########################
@@ -270,15 +272,13 @@ def read(fname, method):
             elif 'cc' in method:
                 e_tot = f['ccsd']['energy'][()]
                 rdm1 = np.array(f['ccsd']['rdm'])
-                entropy_min, _ = compute_entropy_aggressive(rdm1)
-                entropy_max = entropy_min
+                entropy_min, entropy_max = compute_entropy_aggressive(rdm1)
                 trace_object = compute_trace_object(rdm1)
             elif 'hci' in method:
                 e_tot = np.array(f['ci']['energy'])[0] 
                 determinants = f['ci']['_strs'][()].shape[0]
                 rdm1 = np.array(f['ci']['rdm'])
-                entropy_min, _ = compute_entropy_aggressive(rdm1)
-                entropy_max = entropy_min
+                entropy_min, entropy_max = compute_entropy_aggressive(rdm1)
                 trace_object = compute_trace_object(rdm1)
     e_corr = e_hf - e_tot
     return determinants, opt_nblocks, e_tot, error, rdm_err, entropy_min, entropy_max, vmc_nblocks, dmc_nsteps, e_corr, trace_object
