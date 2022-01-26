@@ -111,8 +111,8 @@ def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0):
     """
     Args:
         rdm: 1-RDM matrix
-        epsilon: averaged statistical uncertainty of the 1-RDM matrix
-        noise: standard deviation of a random matrix added to 1-RDM matrix
+        epsilon: Averaged statistical uncertainty of the 1-RDM matrix
+        noise: Standard deviation of a random matrix added to 1-RDM matrix
     Returns:
         entropy_min: a lower bound for entropy
         entropy_max: an upper bound for entropy
@@ -126,25 +126,25 @@ def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0):
     wr = w[ np.abs(w)>radius ].real
     wr = wr[wr>0.0]
     entropy_baseline = -np.sum(wr*np.log(wr))
-    if epsilon==0.0:
+    if epsilon==0.0: ### For methods other than QMC
         return entropy_baseline, entropy_baseline
-    else: 
-        num_exclude = np.sum(wr>0.0)
-        trace = np.sum(wr)
-        trace_missing = np.ceil(trace)-trace
 
-        w_best = trace_missing
-        missing_entropy_min = -w_best*np.log(w_best)
-        entropy_min = entropy_baseline + missing_entropy_min
-        
-        w_worst = np.ones(num_exclude)*trace_missing/num_exclude
-        missing_entropy_max = -np.sum(w_worst*np.log(w_worst))
-        entropy_max = entropy_baseline + missing_entropy_max
+    trace = np.sum(wr)
+    trace_missing = np.ceil(trace)-trace
+    fewest_num_cutoff = np.int(np.ceil(trace_missing/radius))
+    w_best = np.ones(fewest_num_cutoff)*trace_missing/fewest_num_cutoff
+    missing_entropy_min = -np.sum(w_best*np.log(w_best))
+    entropy_min = entropy_baseline + missing_entropy_min
 
-        print('excluded', num_exclude, 'trace missing', trace_missing,
-                'minimum missing entropy', missing_entropy_min,
-                'maximum missing entropy', missing_entropy_max )
-        return entropy_min, entropy_max
+    num_exclude = np.sum(np.abs(w)<radius)
+    w_worst = np.ones(num_exclude)*trace_missing/num_exclude
+    missing_entropy_max = -np.sum(w_worst*np.log(w_worst))
+    entropy_max = entropy_baseline + missing_entropy_max
+ 
+    print('excluded', num_exclude, 'trace missing', trace_missing,
+            'minimum missing entropy', missing_entropy_min,
+            'maximum missing entropy', missing_entropy_max )
+    return entropy_min, entropy_max
 
 
 ################################### read rdm and entropy from QMC ########################
