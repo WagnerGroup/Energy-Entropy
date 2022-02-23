@@ -147,7 +147,7 @@ def compute_entropy_aggressive_old(rdm, noise=0.0, epsilon=0.0):
     return entropy_min, entropy_max
 
 
-def compute_entropy_aggressive(rdm, N=6, noise=0.0, epsilon=0.0):
+def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0):
     """
     Args:
         rdm: 1-RDM matrix
