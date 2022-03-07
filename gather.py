@@ -1,6 +1,6 @@
 import h5py
 import numpy as np
-from scipy import stats
+import scipy
 import pyqmc.api as pyq
 import pyqmc.obdm
 import itertools
@@ -8,9 +8,7 @@ import pandas as pd
 import glob 
 import os.path
 from os import path
-# import gather_entropy
-# import extrapolations
-# from extrapolations import avg, read_rdm, extrapolate_rdm, compute_entropy_aggressive, compute_trace
+
 
 ################################### read general variables from filenames ########################
 
@@ -107,47 +105,7 @@ def compute_trace_object(rdm, rdm_err=None):
     return np.sum(u).real
 
 
-def compute_entropy_aggressive_old(rdm, noise=0.0, epsilon=0.0):
-    """
-    Args:
-        rdm: 1-RDM matrix
-        epsilon: Averaged statistical uncertainty of the 1-RDM matrix
-        noise: Standard deviation of a random matrix added to 1-RDM matrix
-    Returns:
-        entropy_min: a lower bound for entropy
-        entropy_max: an upper bound for entropy
-    """
-    if len(rdm.shape) == 2:
-        rdm = np.asarray([rdm/2.0,rdm/2.0])
-
-    dm = rdm + np.random.randn(*rdm.shape)*noise
-    w = np.linalg.eigvals(dm)
-    radius = np.sqrt(epsilon**2+noise**2)*np.sqrt(rdm.shape[1]) ###
-    wr = w[ np.abs(w)>radius ].real
-    wr = wr[wr>0.0]
-    entropy_baseline = -np.sum(wr*np.log(wr))
-    if epsilon==0.0: ### For methods other than QMC
-        return entropy_baseline, entropy_baseline
-
-    trace = np.sum(wr)
-    trace_missing = np.ceil(trace)-trace
-    fewest_num_cutoff = np.int(np.ceil(trace_missing/radius))
-    w_best = np.ones(fewest_num_cutoff)*trace_missing/fewest_num_cutoff
-    missing_entropy_min = -np.sum(w_best*np.log(w_best))
-    entropy_min = entropy_baseline + missing_entropy_min
-
-    num_exclude = np.sum(np.abs(w)<radius)
-    w_worst = np.ones(num_exclude)*trace_missing/num_exclude
-    missing_entropy_max = -np.sum(w_worst*np.log(w_worst))
-    entropy_max = entropy_baseline + missing_entropy_max
- 
-    print('excluded', num_exclude, 'trace missing', trace_missing,
-            'minimum missing entropy', missing_entropy_min,
-            'maximum missing entropy', missing_entropy_max )
-    return entropy_min, entropy_max
-
-
-def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0):
+def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0, imag_percent=0.01, r_inc_percent=0.01):
     """
     Args:
         rdm: 1-RDM matrix
@@ -165,16 +123,22 @@ def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0):
     radius = np.sqrt(epsilon**2+noise**2)*np.sqrt(rdm.shape[1]) ###
     wr = w[ np.abs(w)>radius ]
     imag_sum = np.sum(np.abs(wr.imag))
-    if imag_sum > radius/100:
+    if imag_sum > radius*imag_percent:
         print("OH NO! We have imaginary components. increasing rejection radius")
-        radius = np.max(np.abs(wr[wr.imag > radius/100]))*1.01 ###
+        wr_imag_large = wr[np.abs(wr.imag) > radius*imag_percent]
+        wr_imag_large = wr_imag_large.tolist()
+        for wi in wr_imag_large[::-1]:
+            if wi.real>radius:
+                wr_imag_large.remove(wi)
+        if len(wr_imag_large)>0:
+            radius = np.max(np.abs(wr_imag_large))*(1+r_inc_percent)
         wr=wr[np.abs(wr)> radius]
+
     wr = wr.real
     wr = wr[wr>0.0]
     entropy_baseline = -np.sum(wr*np.log(wr))
     if epsilon==0.0: ### For methods other than QMC
         return entropy_baseline, entropy_baseline
-        
     trace = np.sum(wr)
     trace_missing = np.ceil(trace)-trace
     
@@ -192,25 +156,10 @@ def compute_entropy_aggressive(rdm, noise=0.0, epsilon=0.0):
             'minimum missing entropy', missing_entropy_min,
             'maximum missing entropy', missing_entropy_max 
         )
-    
     return entropy_min, entropy_max
 
+
 ################################### read rdm and entropy from QMC ########################
-
-def read_rdm(fname, warmup = 50, reblock = None):
-    """ read rdm from vmc chkfiles, no need for warmup and reblock
-    """
-    dat = pyq.read_mc_output(fname, warmup, reblock)
-    #print(list(dat.keys()))
-    rdm1_up = pyqmc.obdm.normalize_obdm(dat['rdm1_upvalue'], dat['rdm1_upnorm'])
-    rdm1_up_err = pyqmc.obdm.normalize_obdm(dat['rdm1_upvalue_err'], dat['rdm1_upnorm'])
-    rdm1_down = pyqmc.obdm.normalize_obdm(dat['rdm1_downvalue'], dat['rdm1_downnorm'])
-    rdm1_down_err = pyqmc.obdm.normalize_obdm(dat['rdm1_downvalue_err'], dat['rdm1_downnorm'])
-    rdm1 = np.array([rdm1_up,rdm1_down])
-    rdm1_err = np.array([rdm1_up_err, rdm1_down_err])
-    return rdm1, rdm1_err
-
-
 def change_to_vmc_fname(dmc_fname):
     vmc_fname = dmc_fname.replace("dmc","vmc")
     variables = dmc_fname.split('/')[-1].split('_')[1:]
@@ -221,19 +170,60 @@ def change_to_vmc_fname(dmc_fname):
         vmc_fname = vmc_fname.replace("_"+variables[-1],".chk")
     return vmc_fname
 
-def extrapolate_rdm(fname, warmup = 50, reblock = 20):
+
+def reblock_and_avg(vals, reblock=None):
+    if reblock is not None:
+            vals = pyqmc.reblock.reblock(vals, reblock)
+    mean = np.mean(vals, axis=0)
+    err = scipy.stats.sem(vals, axis=0)
+    return mean, err
+
+
+def normalize_obdm(dat):
+    rdm1_up = pyqmc.obdm.normalize_obdm(dat['rdm1_upvalue'], dat['rdm1_upnorm'])
+    rdm1_up_err = pyqmc.obdm.normalize_obdm(dat['rdm1_upvalue_err'], dat['rdm1_upnorm'])
+    rdm1_down = pyqmc.obdm.normalize_obdm(dat['rdm1_downvalue'], dat['rdm1_downnorm'])
+    rdm1_down_err = pyqmc.obdm.normalize_obdm(dat['rdm1_downvalue_err'], dat['rdm1_downnorm'])
+    rdm1 = np.array([rdm1_up,rdm1_down])
+    rdm1_err = np.array([rdm1_up_err, rdm1_down_err])
+    return rdm1, rdm1_err
+
+
+def extrapolate_rdm(dmc_fname, warmup = 50, reblock = 20):
     """ read rdm from dmc chkfiles
     """
-    mixed_dm, mixed_dm_err = read_rdm(fname, warmup, reblock)
-    vmc_fname = change_to_vmc_fname(fname)
+    obdm_sample1 = {}
+    obdm_sample2 = {}
+    with h5py.File(dmc_fname,'r') as f:
+        #print(f.keys())
+        for k in ['rdm1_upvalue', 'rdm1_downvalue', 'rdm1_upnorm', 'rdm1_downnorm']: #
+            vals = f[k][warmup:]
+            nblocks = vals.shape[0]
+            sample1 = vals[ : nblocks//2]
+            sample2 = vals[-nblocks//2: ]
+            m1, err1 = reblock_and_avg(sample1, reblock)
+            m2, err2 = reblock_and_avg(sample2, reblock)
+            obdm_sample1[k] = m1
+            obdm_sample1[k + "_err"]  = err1
+            obdm_sample2[k] = m2
+            obdm_sample2[k + "_err"]  = err2
+
+    dm_s1, dm_err_s1 = normalize_obdm(obdm_sample1)
+    dm_s2, dm_err_s2 = normalize_obdm(obdm_sample2)
+
+    vmc_fname = change_to_vmc_fname(dmc_fname)
     if path.exists(vmc_fname):
-        vmc_dm, vmc_dm_err = read_rdm(vmc_fname)
-        extrapolated_dm = 2 * mixed_dm - vmc_dm
-        extrapolated_dm_err = np.sqrt( 4 * mixed_dm_err**2 + vmc_dm_err**2)
+        vmc_dat = pyq.read_mc_output(vmc_fname, warmup, reblock=None)
+        vmc_dm, vmc_dm_err = normalize_obdm(vmc_dat)
+        extrapolated_dm_up = dm_s1[0] + dm_s2[0].conj().T - vmc_dm[0]
+        extrapolated_dm_down = dm_s1[1] + dm_s2[1].conj().T - vmc_dm[1]
+        extrapolated_dm = np.array([extrapolated_dm_up, extrapolated_dm_down])
+        extrapolated_dm_err = np.sqrt((dm_err_s1 + dm_err_s2)**2 + vmc_dm_err**2)
         return extrapolated_dm, extrapolated_dm_err
     else: 
         print("Missing VMC")
-        return mixed_dm, mixed_dm_err
+        return dm_s2, dm_err_s2
+
 
 def read_mc(fname):
     """
@@ -252,9 +242,9 @@ def read_mc(fname):
     nblocks, nsteps = "/", "/"
     warmup = 50
     if 'vmc' in fname:
-        dat = pyq.read_mc_output(fname, warmup)
+        dat = pyq.read_mc_output(fname, warmup) #reblock=None
         e_tot, error = dat['energytotal'], dat['energytotal_err']
-        rdm1, rdm1_err = read_rdm(fname)
+        rdm1, rdm1_err = normalize_obdm(dat)
         with h5py.File(fname,'r') as f:
             nblocks = len(f['block'])
     elif 'dmc' in fname:
@@ -268,7 +258,7 @@ def read_mc(fname):
             # print(tstep, branchtime)
             nsteps = int(len(f['step'])*tstep*branchtime)
     else: 
-        print("exception")
+        print("Exception")
     epsilon = np.mean(rdm1_err)
     entropy_min, entropy_max = compute_entropy_aggressive(rdm1, epsilon=epsilon)
     trace_object = compute_trace_object(rdm1, rdm1_err)
