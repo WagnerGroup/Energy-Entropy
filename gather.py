@@ -218,7 +218,7 @@ def extrapolate_rdm(dmc_fname, warmup = 50, reblock = 20):
         extrapolated_dm_up = dm_s1[0] + dm_s2[0].conj().T - vmc_dm[0]
         extrapolated_dm_down = dm_s1[1] + dm_s2[1].conj().T - vmc_dm[1]
         extrapolated_dm = np.array([extrapolated_dm_up, extrapolated_dm_down])
-        extrapolated_dm_err = np.sqrt((dm_err_s1 + dm_err_s2)**2 + vmc_dm_err**2)
+        extrapolated_dm_err = np.sqrt(dm_err_s1**2 + dm_err_s2**2 + vmc_dm_err**2)
         return extrapolated_dm, extrapolated_dm_err
     else: 
         print("Missing VMC")
